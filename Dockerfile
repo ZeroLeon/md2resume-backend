@@ -28,11 +28,7 @@ COPY . .
 RUN mkdir -p uploads temp generated-resumes && \
     chown -R node:node /app
 
-# 创建非root用户
-RUN addgroup -g 1001 -S node && \
-    adduser -S node -u 1001 -G node
-
-# 切换到非root用户
+# 切换到现有的node用户
 USER node
 
 # 暴露端口
