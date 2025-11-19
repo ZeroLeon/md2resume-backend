@@ -1,0 +1,53 @@
+{
+  "name": "resume-craft",
+  "version": "1.0.0",
+  "description": "简历一键美化排版托管平台",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js",
+    "server:dev": "nodemon server.js",
+    "full-stack": "concurrently \"npm run server:dev\" \"npm run dev\""
+  },
+  "keywords": [
+    "resume",
+    "cv",
+    "template",
+    "beautify",
+    "hosting",
+    "job-seeking"
+  ],
+  "author": "ResumeCraft Team",
+  "license": "MIT",
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "express": "^4.18.0",
+    "multer": "^1.4.0",
+    "pdf-parse": "^1.1.1",
+    "pdf-lib": "^1.17.0",
+    "marked": "^5.0.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "uuid": "^9.0.0",
+    "sharp": "^0.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/express": "^4.17.0",
+    "@types/multer": "^1.4.0",
+    "@types/uuid": "^9.0.0",
+    "@types/cors": "^2.8.0",
+    "vite": "^4.4.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "tailwindcss": "^3.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "nodemon": "^3.0.0"
+  }
+}
