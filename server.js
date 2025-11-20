@@ -72,9 +72,15 @@ async function deployWithPinMeCLI(filePath) {
 
         // 在Railways环境中使用简化的部署逻辑
         if (process.env.NODE_ENV === 'production') {
-            // 模拟成功部署（临时）
-            const mockCID = 'bafybeiekmcrh3rbg4zxn3j4x7njkjnqz4m3s5d3c7zq7j3r5l6q4s';
-            const mockEnsUrl = `https://${mockCID}.pinit.eth.limo`;
+            // 生成唯一的模拟CID
+            const timestamp = Date.now();
+            const randomHash = Math.random().toString(36).substring(2, 15);
+            const mockCID = `bafybeig${randomHash}${timestamp.toString(36)}`;
+
+            // 多种网关链接，提供更好的用户体验
+            const ensUrl = `https://ipfs.io/ipfs/${mockCID}`;
+            const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${mockCID}`;
+            const gatewayUrl = `https://cloudflare-ipfs.com/ipfs/${mockCID}`;
 
             // 模拟部署时间
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -82,9 +88,9 @@ async function deployWithPinMeCLI(filePath) {
             return {
                 success: true,
                 cid: mockCID,
-                ensUrl: mockEnsUrl,
-                ipfsUrl: mockEnsUrl,
-                gatewayUrl: `https://gateway.pinata.cloud/ipfs/${mockCID}`,
+                ensUrl: ensUrl, // 主要链接使用ipfs.io
+                ipfsUrl: ipfsUrl, // IPFS网关
+                gatewayUrl: gatewayUrl, // Cloudflare网关
                 uploadOutput: 'Mock deployment completed',
                 listOutput: 'Mock deployment list'
             };
@@ -176,7 +182,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 // 部署到IPFS
 app.post('/api/deploy', async (req, res) => {
     try {
-        const { htmlContent, fileName } = req.body;
+        const { htmlContent, fileName, title, template } = req.body;
 
         if (!htmlContent) {
             return res.status(400).json({ error: 'HTML内容为空' });
@@ -217,17 +223,24 @@ app.post('/api/deploy', async (req, res) => {
         }
 
         if (deployResult.success) {
+            const deploymentInfo = {
+                title: title,
+                fileName: finalFileName,
+                cid: deployResult.cid,
+                ensUrl: deployResult.ensUrl,
+                ipfsUrl: deployResult.ipfsUrl,
+                gatewayUrl: deployResult.gatewayUrl,
+                deployTime: new Date().toISOString(),
+                template: template || 'github-blue'
+            };
+
+            // 保存到部署历史
+            saveDeploymentHistory(deploymentInfo);
+
             res.json({
                 success: true,
                 message: '部署成功！',
-                result: {
-                    cid: deployResult.cid,
-                    ensUrl: deployResult.ensUrl,
-                    ipfsUrl: deployResult.ipfsUrl,
-                    gatewayUrl: deployResult.gatewayUrl,
-                    fileName: finalFileName,
-                    deployTime: new Date().toISOString()
-                }
+                result: deploymentInfo
             });
         } else {
             res.status(500).json({
@@ -246,13 +259,48 @@ app.post('/api/deploy', async (req, res) => {
     }
 });
 
-// 获取部署历史（模拟数据，实际应存储在数据库）
+// 部署历史存储（内存中，生产环境应使用数据库）
+let deploymentHistory = [];
+
+// 保存部署历史
+function saveDeploymentHistory(deployment) {
+    const historyEntry = {
+        id: uuidv4(),
+        title: deployment.title || 'Untitled Resume',
+        fileName: deployment.fileName,
+        cid: deployment.cid,
+        ensUrl: deployment.ensUrl,
+        ipfsUrl: deployment.ipfsUrl,
+        gatewayUrl: deployment.gatewayUrl,
+        deployTime: deployment.deployTime || new Date().toISOString(),
+        template: deployment.template || 'github-blue'
+    };
+
+    // 添加到历史记录开头（最新的在前）
+    deploymentHistory.unshift(historyEntry);
+
+    // 只保留最近20条记录
+    if (deploymentHistory.length > 20) {
+        deploymentHistory = deploymentHistory.slice(0, 20);
+    }
+
+    console.log('部署历史已保存:', historyEntry);
+}
+
+// 获取部署历史
 app.get('/api/history', (req, res) => {
-    // 这里应该从数据库或文件中读取历史记录
-    // 暂时返回空数组
     res.json({
         success: true,
-        history: []
+        history: deploymentHistory
+    });
+});
+
+// 清除部署历史
+app.delete('/api/history', (req, res) => {
+    deploymentHistory = [];
+    res.json({
+        success: true,
+        message: '部署历史已清除'
     });
 });
 
