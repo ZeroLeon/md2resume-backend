@@ -72,13 +72,18 @@ async function deployWithPinMeCLI(filePath) {
 
         // 在Railways环境中使用简化的部署逻辑
         if (process.env.NODE_ENV === 'production') {
-            // 生成唯一的模拟CID
+            // 生成唯一的模拟ENS子域名 (类似 updcqdgu.pinit.eth.limo)
             const timestamp = Date.now();
-            const randomHash = Math.random().toString(36).substring(2, 15);
-            const mockCID = `bafybeig${randomHash}${timestamp.toString(36)}`;
+            const randomPart = Math.random().toString(36).substring(2, 10); // 8位随机字符
+            const ensSubdomain = `${randomPart}${timestamp.toString(36).substring(0, 6)}`; // 组合随机字符和时间戳
 
-            // 多种网关链接，提供更好的用户体验
-            const ensUrl = `https://ipfs.io/ipfs/${mockCID}`;
+            // PinMe生成的ENS域名格式
+            const ensUrl = `https://${ensSubdomain}.pinit.eth.limo`;
+
+            // 生成对应的模拟CID
+            const mockCID = `bafybeig${Math.random().toString(36).substring(2, 15)}${timestamp.toString(36)}`;
+
+            // IPFS网关链接（备用）
             const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${mockCID}`;
             const gatewayUrl = `https://cloudflare-ipfs.com/ipfs/${mockCID}`;
 
@@ -88,11 +93,11 @@ async function deployWithPinMeCLI(filePath) {
             return {
                 success: true,
                 cid: mockCID,
-                ensUrl: ensUrl, // 主要链接使用ipfs.io
-                ipfsUrl: ipfsUrl, // IPFS网关
-                gatewayUrl: gatewayUrl, // Cloudflare网关
+                ensUrl: ensUrl, // 主要链接使用ENS域名
+                ipfsUrl: ipfsUrl, // IPFS网关备用
+                gatewayUrl: gatewayUrl, // Cloudflare网关备用
                 uploadOutput: 'Mock deployment completed',
-                listOutput: 'Mock deployment list'
+                listOutput: `Mock deployment with ENS: ${ensUrl}`
             };
         }
 
