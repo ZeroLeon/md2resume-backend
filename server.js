@@ -50,14 +50,11 @@ const upload = multer({
     }
 });
 
-// 检查PinMe是否安装 - 临时直接返回true
+// 检查PinMe是否安装
 async function checkPinMeInstallation() {
     try {
-        // 在Railways环境中暂时返回true
-        if (process.env.NODE_ENV === 'production') {
-            return true; // 假设PinMe已安装
-        }
-        await execPromise('pinme --version');
+        const { stdout, stderr } = await execPromise('pinme --version');
+        console.log('PinMe版本信息:', stdout || stderr);
         return true;
     } catch (error) {
         console.error('PinMe检查失败:', error);
@@ -65,78 +62,139 @@ async function checkPinMeInstallation() {
     }
 }
 
-// 调用PinMe CLI部署 - 简化版本
+// 调用PinMe CLI部署 - 统一真实部署逻辑
 async function deployWithPinMeCLI(filePath) {
     try {
         console.log('开始部署到IPFS:', filePath);
+        console.log('文件路径:', filePath);
 
-        // 在Railways环境中使用简化的部署逻辑
-        if (process.env.NODE_ENV === 'production') {
-            // 生成唯一的模拟ENS子域名 (类似 updcqdgu.pinit.eth.limo)
-            const timestamp = Date.now();
-            const randomPart = Math.random().toString(36).substring(2, 10); // 8位随机字符
-            const ensSubdomain = `${randomPart}${timestamp.toString(36).substring(0, 6)}`; // 组合随机字符和时间戳
-
-            // PinMe生成的ENS域名格式
-            const ensUrl = `https://${ensSubdomain}.pinit.eth.limo`;
-
-            // 生成对应的模拟CID
-            const mockCID = `bafybeig${Math.random().toString(36).substring(2, 15)}${timestamp.toString(36)}`;
-
-            // IPFS网关链接（备用）
-            const ipfsUrl = `https://gateway.pinata.cloud/ipfs/${mockCID}`;
-            const gatewayUrl = `https://cloudflare-ipfs.com/ipfs/${mockCID}`;
-
-            // 模拟部署时间
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            return {
-                success: true,
-                cid: mockCID,
-                ensUrl: ensUrl, // 主要链接使用ENS域名
-                ipfsUrl: ipfsUrl, // IPFS网关备用
-                gatewayUrl: gatewayUrl, // Cloudflare网关备用
-                uploadOutput: 'Mock deployment completed',
-                listOutput: `Mock deployment with ENS: ${ensUrl}`
-            };
+        // 验证文件存在
+        try {
+            await fs.access(filePath);
+        } catch (error) {
+            throw new Error(`文件不存在: ${filePath}`);
         }
 
-        // 开发环境执行真实部署
-        const uploadResult = await execPromise(`pinme upload "${filePath}"`);
+        // 执行PinMe上传命令
+        console.log('执行PinMe上传命令...');
+        const uploadResult = await execPromise(`pinme upload "${filePath}"`, {
+            timeout: 60000 // 60秒超时
+        });
 
-        // 等待上传完成
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('PinMe上传完成:', uploadResult.stdout);
+
+        // 等待上传在IPFS网络中传播
+        console.log('等待IPFS网络同步...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
 
         // 获取最新上传记录
-        const listResult = await execPromise(`pinme list -l 1`);
-        const listOutput = listResult.stdout + listResult.stderr;
+        console.log('获取PinMe上传历史...');
+        const listResult = await execPromise('pinme list -l 1', {
+            timeout: 30000 // 30秒超时
+        });
 
-        // 解析ENS URL
-        const ensUrlMatch = listOutput.match(/(https:\/\/[a-z0-9]+\.pinit\.eth\.limo)/i);
-        const ensUrl = ensUrlMatch ? ensUrlMatch[1] : null;
+        const fullOutput = listResult.stdout + listResult.stderr;
+        console.log('PinMe历史记录:', fullOutput);
 
-        const cidMatch = listOutput.match(/IPFS CID: (baf[a-z0-9]+)/i);
-        const cid = cidMatch ? cidMatch[1] : null;
+        // 解析ENS URL和CID - 基于真实的PinMe输出格式
+        let ensUrl = null;
+        let cid = null;
 
-        if (!ensUrl) {
-            throw new Error('无法从PinMe历史中解析ENS域名');
+        // 从list输出中解析ENS URL和CID (主要方法)
+        const ensUrlMatch = fullOutput.match(/ENS URL:\s*(https:\/\/[a-z0-9]+\.pinit\.eth\.limo)/i);
+        if (ensUrlMatch) {
+            ensUrl = ensUrlMatch[1];
         }
+
+        const cidMatch = fullOutput.match(/IPFS CID:\s*(baf[a-z0-9]+)/i);
+        if (cidMatch) {
+            cid = cidMatch[1];
+        }
+
+        // 备用解析方法：如果主要方法失败，尝试其他格式
+        if (!ensUrl) {
+            const backupEnsPatterns = [
+                /https:\/\/([a-z0-9]+)\.pinit\.eth\.limo/gi,
+                /https:\/\/([a-z0-9]+)\.eth\.limo/gi
+            ];
+
+            for (const pattern of backupEnsPatterns) {
+                const matches = [...fullOutput.matchAll(pattern)];
+                if (matches.length > 0) {
+                    ensUrl = matches[0][0];
+                    break;
+                }
+            }
+        }
+
+        if (!cid) {
+            const backupCidPatterns = [
+                /CID:\s*(baf[a-z0-9]+)/gi,
+                /Hash:\s*(baf[a-z0-9]+)/gi,
+                /(baf[a-z0-9]{46,})/gi  // 直接匹配完整的CID
+            ];
+
+            for (const pattern of backupCidPatterns) {
+                const matches = [...fullOutput.matchAll(pattern)];
+                if (matches.length > 0) {
+                    cid = matches[0][1] || matches[0][0];
+                    break;
+                }
+            }
+        }
+
+        console.log('解析结果 - ENS URL:', ensUrl, 'CID:', cid);
+
+        // 如果没有找到ENS URL，尝试从上传输出中查找
+        if (!ensUrl && uploadResult.stdout) {
+            const uploadMatches = [...uploadResult.stdout.matchAll(/https:\/\/([a-z0-9]+)\.pinit\.eth\.limo/gi)];
+            if (uploadMatches.length > 0) {
+                ensUrl = uploadMatches[0][0];
+            }
+        }
+
+        // 如果仍然没有找到，提供详细错误信息
+        if (!ensUrl) {
+            console.error('ENS URL解析失败，完整输出:', {
+                uploadOutput: uploadResult.stdout + uploadResult.stderr,
+                listOutput: fullOutput
+            });
+            throw new Error('无法从PinMe输出中解析ENS域名。请检查PinMe CLI是否正确配置了ENS。');
+        }
+
+        // 构建多种访问链接
+        const baseUrl = ensUrl;
+        const ipfsUrl = cid ? `https://ipfs.io/ipfs/${cid}` : baseUrl;
+        const gatewayUrl = cid ? `https://cloudflare-ipfs.com/ipfs/${cid}` : baseUrl;
+        const pinataUrl = cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : baseUrl;
 
         return {
             success: true,
             cid: cid || 'unknown',
-            ensUrl: ensUrl,
-            ipfsUrl: ensUrl,
-            gatewayUrl: ensUrl,
+            ensUrl: baseUrl, // 主要ENS域名
+            ipfsUrl: ipfsUrl, // IPFS官方网关
+            gatewayUrl: gatewayUrl, // Cloudflare网关
+            pinataUrl: pinataUrl, // Pinata网关
             uploadOutput: uploadResult.stdout + uploadResult.stderr,
-            listOutput: listOutput
+            listOutput: fullOutput,
+            deployTime: new Date().toISOString()
         };
 
     } catch (error) {
         console.error('PinMe部署失败:', error);
+
+        // 提供更详细的错误信息
+        let errorMessage = error.message;
+        if (error.signal === 'SIGTERM') {
+            errorMessage = 'PinMe命令执行超时，请检查网络连接或重试';
+        } else if (error.code === 'ENOTFOUND') {
+            errorMessage = '网络连接失败，请检查网络连接';
+        }
+
         return {
             success: false,
-            error: error.message
+            error: errorMessage,
+            originalError: error.message
         };
     }
 }
@@ -229,29 +287,45 @@ app.post('/api/deploy', async (req, res) => {
 
         if (deployResult.success) {
             const deploymentInfo = {
-                title: title,
+                title: title || 'Untitled Resume',
                 fileName: finalFileName,
                 cid: deployResult.cid,
                 ensUrl: deployResult.ensUrl,
                 ipfsUrl: deployResult.ipfsUrl,
                 gatewayUrl: deployResult.gatewayUrl,
-                deployTime: new Date().toISOString(),
-                template: template || 'github-blue'
+                pinataUrl: deployResult.pinataUrl,
+                deployTime: deployResult.deployTime || new Date().toISOString(),
+                template: template || 'github-blue',
+                debugInfo: {
+                    uploadOutput: deployResult.uploadOutput,
+                    listOutput: deployResult.listOutput
+                }
             };
 
             // 保存到部署历史
             saveDeploymentHistory(deploymentInfo);
 
+            console.log('✅ 部署成功:', {
+                ensUrl: deploymentInfo.ensUrl,
+                cid: deploymentInfo.cid
+            });
+
             res.json({
                 success: true,
-                message: '部署成功！',
+                message: '部署成功！简历已永久存储在IPFS网络',
                 result: deploymentInfo
             });
         } else {
+            console.error('❌ 部署失败:', {
+                error: deployResult.error,
+                originalError: deployResult.originalError
+            });
+
             res.status(500).json({
                 success: false,
                 error: deployResult.error,
-                message: '部署失败，请检查PinMe CLI配置'
+                originalError: deployResult.originalError,
+                message: '部署失败，请检查网络连接和PinMe CLI配置'
             });
         }
 
@@ -277,19 +351,26 @@ function saveDeploymentHistory(deployment) {
         ensUrl: deployment.ensUrl,
         ipfsUrl: deployment.ipfsUrl,
         gatewayUrl: deployment.gatewayUrl,
+        pinataUrl: deployment.pinataUrl,
         deployTime: deployment.deployTime || new Date().toISOString(),
-        template: deployment.template || 'github-blue'
+        template: deployment.template || 'github-blue',
+        status: 'success', // 只保存成功的部署
+        verified: deployment.ensUrl ? false : null // 标记是否已验证链接可访问
     };
 
     // 添加到历史记录开头（最新的在前）
     deploymentHistory.unshift(historyEntry);
 
-    // 只保留最近20条记录
-    if (deploymentHistory.length > 20) {
-        deploymentHistory = deploymentHistory.slice(0, 20);
+    // 只保留最近50条记录
+    if (deploymentHistory.length > 50) {
+        deploymentHistory = deploymentHistory.slice(0, 50);
     }
 
-    console.log('部署历史已保存:', historyEntry);
+    console.log('✅ 部署历史已保存:', {
+        id: historyEntry.id,
+        title: historyEntry.title,
+        ensUrl: historyEntry.ensUrl
+    });
 }
 
 // 获取部署历史
